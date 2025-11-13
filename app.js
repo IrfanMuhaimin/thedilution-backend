@@ -20,7 +20,7 @@ db.sequelize.sync() // { force: true } to drop and re-sync db
     console.log("Failed to sync db: " + err.message);
   });
 
-// --- Routes ---
+// --- Routes  ---
 app.get("/", (req, res) => {
   res.json({ message: "Welcome to The Dilution System backend." });
 });
