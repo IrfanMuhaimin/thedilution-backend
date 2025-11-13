@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: thedilution_mysql_db
+    environment:
+      MYSQL_ROOT_PASSWORD: admin123 # Change this!
+      MYSQL_DATABASE: thedilution_db
+      MYSQL_USER: thedilution_user
+      MYSQL_PASSWORD: admin123 # Change this!
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: always
+
+volumes:
+  db_data:
