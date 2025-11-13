@@ -17,7 +17,7 @@ db.sequelize.sync() // { force: true } to drop and re-sync db
     console.log("Synced db.");
   })
   .catch((err) => {
-    console.log("Failed to sync db: " + err.message);
+    console.log("Failed to sync db: ", err);
   });
 
 // --- Routes  ---
