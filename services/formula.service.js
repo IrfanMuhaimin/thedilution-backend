@@ -1,6 +1,7 @@
 // services/formula.service.js
 const db = require("../models");
-const { Formula, FormulaDetail, Inventory, sequelize } = db;
+const { Formula, FormulaDetail, sequelize } = db;
+const Inventory = db.Inventory || db.inventory;
 
 async function createFormula(formulaData) {
   const { name, ingredients } = formulaData;
@@ -15,13 +16,19 @@ async function createFormula(formulaData) {
 
 async function findFormulaById(id) {
   return await Formula.findByPk(id, {
-    include: [{ model: FormulaDetail, include: [Inventory] }]
+    include: [{ 
+        model: FormulaDetail, 
+        include: [Inventory] 
+    }]
   });
 }
 
 async function findAllFormulas() {
   return await Formula.findAll({
-    include: [{ model: FormulaDetail, include: [Inventory]}]
+    include: [{
+      model: FormulaDetail,
+      include: [Inventory]
+    }]
   });
 }
 
