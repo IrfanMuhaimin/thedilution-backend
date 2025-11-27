@@ -20,7 +20,9 @@ async function findFormulaById(id) {
 }
 
 async function findAllFormulas() {
-  return await Formula.findAll({ include: [FormulaDetail] });
+  return await Formula.findAll({
+    include: [{ model: FormulaDetail, include: [Inventory]}]
+  });
 }
 
 async function updateFormula(formulaId, formulaData) {

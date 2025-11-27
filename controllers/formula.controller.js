@@ -1,7 +1,7 @@
+//controller/formula.controller.js
 const service = require("../services/formula.service");
 
 exports.create = async (req, res) => {
-    // Expects: { "name": "My Recipe", "ingredients": [{ "inventoryId": 1, "requiredQuantity": 100 }] }
     if (!req.body.name || !req.body.ingredients || !Array.isArray(req.body.ingredients) || req.body.ingredients.length === 0) {
         return res.status(400).send({ message: "Formula name and a non-empty ingredients array are required." });
     }
