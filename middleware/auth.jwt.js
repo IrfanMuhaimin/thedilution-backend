@@ -1,3 +1,4 @@
+//auth.jwt.js
 const jwt = require("jsonwebtoken");
 const db = require("../models");
 const User = db.User;
@@ -57,6 +58,13 @@ const isAdminOrPharmacist = (req, res, next) => {
     res.status(403).send({ message: "Require Admin or Pharmacist Role!" });
 };
 
+const isAdminOrDoctor = (req, res, next) => {
+    if (req.userRole && (req.userRole === 'Admin' || req.userRole === 'Doctor')) {
+        next();
+        return;
+    }
+    res.status(403).send({ message: "Require Admin or Doctor Role!" });
+};
 
 // CRITICAL: Update the exports to include the new functions
 module.exports = {
@@ -64,5 +72,6 @@ module.exports = {
   isAdmin,
   isPharmacist,
   isDoctor,
-  isAdminOrPharmacist
+  isAdminOrPharmacist,
+  isAdminOrDoctor
 };

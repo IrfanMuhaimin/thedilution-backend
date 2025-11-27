@@ -1,3 +1,4 @@
+//services/hardware.service.js
 const db = require("../models");
 const Hardware = db.Hardware;
 

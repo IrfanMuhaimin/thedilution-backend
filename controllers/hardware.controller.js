@@ -1,3 +1,4 @@
+//controllers/hardware.controller.js
 const hardwareService = require("../services/hardware.service");
 
 exports.create = async (req, res) => {
