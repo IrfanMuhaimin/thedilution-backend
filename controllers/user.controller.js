@@ -86,3 +86,26 @@ exports.delete = async (req, res) => {
         res.status(500).send({ message: "Could not delete User with id=" + id });
     }
 };
+
+exports.getMe = async (req, res) => {
+  try {
+    // req.userId is attached by our verifyToken middleware
+    const userProfile = await userService.getUserProfile(req.userId);
+    if (userProfile) {
+      res.status(200).send(userProfile);
+    } else {
+      res.status(404).send({ message: "User profile not found." });
+    }
+  } catch (err) {
+    res.status(500).send({ message: err.message });
+  }
+};
+
+exports.updateMe = async (req, res) => {
+  try {
+    const updatedProfile = await userService.updateUserProfile(req.userId, req.body);
+    res.status(200).send(updatedProfile);
+  } catch (err) {
+    res.status(500).send({ message: err.message || "An error occurred while updating profile." });
+  }
+};

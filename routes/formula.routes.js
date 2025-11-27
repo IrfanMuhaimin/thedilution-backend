@@ -5,8 +5,8 @@ var router = require("express").Router();
 
 module.exports = app => {
   router.post("/", [verifyToken, isAdminOrPharmacist, controller.create]);
-  router.get("/", [verifyToken, isAdminOrPharmacist, controller.findAll]);
-  router.get("/:id", [verifyToken, isAdminOrPharmacist, controller.findOne]);
+  router.get("/", [verifyToken, controller.findAll]);
+  router.get("/:id", [verifyToken, controller.findOne]);
   router.put("/:id", [verifyToken, isAdminOrPharmacist, controller.update]);
   router.delete("/:id", [verifyToken, isAdminOrPharmacist, controller.delete]);
 

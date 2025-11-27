@@ -6,6 +6,9 @@ module.exports = function(app) {
   
   router.post("/", users.create);
 
+  router.get("/me", [verifyToken], users.getMe);
+  router.put("/me", [verifyToken], users.updateMe);
+
   router.get("/", [verifyToken, users.findAll]);
   router.get("/:id", [verifyToken, users.findOne]);
   router.put("/:id", [verifyToken, users.update]);

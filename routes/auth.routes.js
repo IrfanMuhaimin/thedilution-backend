@@ -1,9 +1,11 @@
-module.exports = app => {
-  const authController = require("../controllers/auth.controller.js");
-  var router = require("express").Router();
+// routes/auth.routes.js
+const authController = require("../controllers/auth.controller.js");
+const { verifyToken } = require("../middleware/auth.jwt");
+var router = require("express").Router();
 
-  // Route for user login
+module.exports = app => {
   router.post("/login", authController.login);
+  router.post("/logout", [verifyToken], authController.logout);
 
   app.use('/api/auth', router);
 };

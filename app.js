@@ -1,5 +1,10 @@
 //app.js
 require('dotenv').config();
+
+console.log("--- DEBUGGING .env VARIABLES ---");
+console.log("SERVER_PORT read from .env:", process.env.SERVER_PORT);
+console.log("---------------------------------");
+
 const express = require("express");
 const cors = require("cors");
 
@@ -39,7 +44,7 @@ require("./routes/hardwareLog.routes")(app);
 require("./routes/notification.routes")(app);
 
 // --- Server Listening ---
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.SERVER_PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}.`);
 });

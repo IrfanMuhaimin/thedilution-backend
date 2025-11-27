@@ -43,11 +43,42 @@ async function deleteUser(id) {
   return { message: "User was deleted successfully." };
 }
 
+async function getUserProfile(userId) {
+  return await User.findByPk(userId, {
+    attributes: { exclude: ['password'] }
+  });
+}
+
+async function updateUserProfile(userId, profileData) {
+  const user = await User.findByPk(userId);
+  if (!user) {
+    throw new Error("User not found.");
+  }
+
+  if (profileData.password) {
+    profileData.password = await bcrypt.hash(profileData.password, 10);
+  }
+
+  const allowedUpdates = {
+    username: profileData.username,
+    password: profileData.password,
+    department: profileData.department,
+    biometricHash: profileData.biometricHash
+  };
+
+  Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
+
+  await user.update(allowedUpdates);
+
+  return await getUserProfile(userId);
+}
 
 module.exports = {
   createUser,
   getAllUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  getUserProfile,
+  updateUserProfile
 };

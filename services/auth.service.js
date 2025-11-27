@@ -31,6 +31,11 @@ async function loginUser({ username, password }) {
   };
 }
 
+async function logoutUser() {
+  return { message: "Logout successful. Please delete the token on the client side." };
+}
+
 module.exports = {
-  loginUser
+  loginUser,
+  logoutUser
 };
