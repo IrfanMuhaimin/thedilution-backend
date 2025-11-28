@@ -50,7 +50,6 @@ async function updateFormula(formulaId, formulaData) {
 
     // 3. If new ingredients are provided, replace the old ones
     if (ingredients && Array.isArray(ingredients)) {
-      // First, delete all existing details for this formula
       await FormulaDetail.destroy({ where: { formulaId: formulaId }, transaction: t });
 
       // Then, create the new ones

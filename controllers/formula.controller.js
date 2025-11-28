@@ -14,7 +14,7 @@ exports.create = async (req, res) => {
 };
 exports.findAll = async (req, res) => {
     try {
-        const records = await service.findAll();
+        const records = await service.findAllFormulas();
         res.status(200).send(records);
     } catch (err) {
         res.status(500).send({ message: err.message });
