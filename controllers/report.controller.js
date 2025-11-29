@@ -1,8 +1,10 @@
 const service = require("../services/report.service");
+const pdfService = require("../services/pdf.service");
 
+// Generate a new report record
 exports.generate = async (req, res) => {
-  const { type, id } = req.body; // Expects a type and an ID
-  const generatingUserId = req.userId; // User who clicked "generate"
+  const { type, id } = req.body;
+  const generatingUserId = req.userId;
 
   if (!type || !id) {
     return res.status(400).send({ message: "A 'type' (e.g., 'Jobcard') and an 'id' are required." });
@@ -17,17 +19,31 @@ exports.generate = async (req, res) => {
   }
 };
 
-exports.create = async (req, res) => {
-    if (!req.body.jobcardId || !req.body.inventoryId || !req.body.hardwareId || !req.body.userId) {
-        return res.status(400).send({ message: "All foreign keys are required." });
+// Generate and stream a PDF for an existing report
+exports.generatePDF = async (req, res) => {
+  try {
+    const reportId = req.params.id;
+    const reportData = await service.findById(reportId);
+
+    if (!reportData) {
+      return res.status(404).send({ message: "Report not found." });
     }
-    try {
-        const record = await service.create(req.body);
-        res.status(201).send(record);
-    } catch (err) {
-        res.status(500).send({ message: err.message });
-    }
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="report-${reportId}-${reportData.reportType}.pdf"`);
+
+    pdfService.buildReportPDF(
+      (chunk) => res.write(chunk),
+      () => res.end(),
+      reportData
+    );
+
+  } catch (err) {
+    res.status(500).send({ message: err.message || "An error occurred while generating the PDF." });
+  }
 };
+
+// Standard CRUD functions
 exports.findAll = async (req, res) => {
     try {
         const records = await service.findAll();
@@ -36,13 +52,23 @@ exports.findAll = async (req, res) => {
         res.status(500).send({ message: err.message });
     }
 };
+
 exports.findOne = async (req, res) => {
-    const record = await service.findById(req.params.id);
-    if (record) res.status(200).send(record);
-    else res.status(404).send({ message: "Not found." });
+    try {
+        const record = await service.findById(req.params.id);
+        if (record) res.status(200).send(record);
+        else res.status(404).send({ message: "Not found." });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
 };
+
 exports.delete = async (req, res) => {
-    const result = await service.destroy(req.params.id);
-    if (result) res.status(200).send(result);
-    else res.status(404).send({ message: "Cannot delete." });
+    try {
+        const result = await service.destroy(req.params.id);
+        if (result) res.status(200).send(result);
+        else res.status(404).send({ message: "Cannot delete." });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
 };

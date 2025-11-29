@@ -1,3 +1,4 @@
+//controllers/inventory.controller.js
 const inventoryService = require("../services/inventory.service");
 
 exports.create = async (req, res) => {

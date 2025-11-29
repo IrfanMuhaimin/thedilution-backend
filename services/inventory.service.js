@@ -1,3 +1,4 @@
+//services/inventory.service.js
 const db = require("../models");
 const { Inventory, User } = db;
 
