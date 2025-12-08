@@ -3,7 +3,7 @@
 const db = require("../models");
 const { 
   Report, Jobcard, Inventory, Hardware, User, Consumption, 
-  Formula, Dilution, FormulaDetail, PrescriptionDetail 
+  Formula, Dilution, FormulaDetail, PrescriptionDetail, InventoryStock
 } = db;
 
 async function generateReport(reportRequest) {
@@ -29,8 +29,6 @@ async function generateReport(reportRequest) {
   return await findById(newReport.reportId);
 }
 
-// --- THIS IS THE KEY CHANGE ---
-// We define a reusable, deeply nested include structure.
 const fullReportInclude = [
   {
     model: Jobcard,
@@ -45,7 +43,9 @@ const fullReportInclude = [
           model: Formula,
           include: {
             model: FormulaDetail,
-            include: [Inventory] // Include the ingredient name
+            include: [{ // This part remains the same, as FormulaDetail links to the master Inventory
+                model: Inventory 
+            }]
           }
         }
       }
@@ -53,11 +53,21 @@ const fullReportInclude = [
   },
   { 
     model: Consumption,
-    include: [Inventory, Jobcard, Formula]
+    include: [
+        { model: Inventory }, // Also include details of the consumed master item
+        Jobcard, 
+        Formula
+    ]
   },
-  { model: Inventory },
+  { 
+    model: Inventory, // THIS IS THE UPDATED PART for "Inventory" type reports
+    include: [
+        { model: User, attributes: { exclude: ['password'] } },
+        { model: InventoryStock } // Now, it will include all associated stock batches
+    ]
+  },
   { model: Hardware },
-  { model: User, as: 'User', attributes: { exclude: ['password'] } } // The user who generated the report
+  { model: User, as: 'User', attributes: { exclude: ['password'] } }
 ];
 // --- END OF KEY CHANGE ---
 

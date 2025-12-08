@@ -17,6 +17,12 @@ module.exports = (sequelize, DataTypes) => {
     unit: { type: DataTypes.STRING(10) },
     status: { type: DataTypes.STRING(25) },
     updateDate: { type: DataTypes.DATE },
+    
+    predictedStocking: {
+      type: DataTypes.DATE,
+      allowNull: true
+    }
+
   }, { timestamps: false });
 
   return Inventory;

@@ -1,17 +1,39 @@
+version: '3.8'
+
 services:
+  # This is your Node.js application service
+  api:
+    build: .  # <-- CHANGED: Build from the current folder, not a 'backend' subfolder
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
+    networks:
+      - shared-network
+    env_file:
+      - ./.env # <-- CHANGED: Look for the .env file in the current folder
+
+  # This is your database service
   db:
     image: mysql:8.0
     container_name: thedilution_mysql_db
     environment:
-      MYSQL_ROOT_PASSWORD: admin123 # Change this!
-      MYSQL_DATABASE: thedilution_db
-      MYSQL_USER: thedilution_user
-      MYSQL_PASSWORD: admin123 # Change this!
+      # These now read from your .env file for consistency
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
       - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
     restart: always
+    networks:
+      - shared-network
 
 volumes:
   db_data:
+
+networks:
+  shared-network:
+    external: true

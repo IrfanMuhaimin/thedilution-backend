@@ -1,10 +1,6 @@
 //app.js
 require('dotenv').config();
 
-console.log("--- DEBUGGING .env VARIABLES ---");
-console.log("SERVER_PORT read from .env:", process.env.SERVER_PORT);
-console.log("---------------------------------");
-
 const express = require("express");
 const cors = require("cors");
 
@@ -12,20 +8,10 @@ const app = express();
 
 // --- Middleware ---
 app.use(cors());
-app.use(express.json()); 
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Database Sync ---
-const db = require("./models");
-db.sequelize.sync() // { force: true } to drop and re-sync db
-  .then(() => {
-    console.log("Synced db.");
-  })
-  .catch((err) => {
-    console.log("Failed to sync db: ", err);
-  });
-
-// --- Routes  ---
+// --- Routes --- (Define them before the DB sync)
 app.get("/", (req, res) => {
   res.json({ message: "Welcome to The Dilution System backend." });
 });
@@ -45,8 +31,28 @@ require("./routes/notification.routes")(app);
 require("./routes/dashboard.routes")(app);
 require("./routes/inventoryStock.routes")(app);
 
-// --- Server Listening ---
+
+// --- Database Sync and Server Start ---
+const db = require("./models");
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}.`);
-});
+
+// The { force: true } option will drop tables if they exist.
+// Use it only in development. Remove for production.
+// db.sequelize.sync({ force: true })
+db.sequelize.sync()
+  .then(() => {
+    console.log("✅ Database synced successfully.");
+    
+    // --- Start Listening for Requests ---
+    // This part only runs if the database sync is successful
+    app.listen(PORT, () => {
+      console.log(`✅ Server is running on port ${PORT}.`);
+      console.log("   Waiting for incoming requests...");
+    });
+  })
+  .catch((err) => {
+    // This part runs if the database sync fails
+    console.error("❌ Failed to sync database:", err);
+    // Exit the process with an error code, which is good for Docker
+    process.exit(1);
+  });
