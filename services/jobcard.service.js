@@ -1,7 +1,7 @@
 /**
  * This service handles all business logic related to Jobcards.
  * It includes creating requests, processing approvals, checking inventory,
- * and triggering the external robot API.
+ * and triggering the external robot API with detailed formula data.
  */
 
 const db = require("../models");
@@ -16,8 +16,8 @@ const {
   Formula,
   FormulaDetail,
   PrescriptionDetail,
-  Inventory,
-  User, // <-- User model is needed for the dynamic lookup
+  Inventory, // <-- Crucial for getting ingredient names
+  User,
   Consumption,
   Notification,
   sequelize
@@ -29,39 +29,28 @@ const {
  * @returns {Promise<Jobcard>} The newly created jobcard instance.
  */
 async function create(data) {
-  // Use a transaction to ensure both the jobcard and notification are created successfully, or neither are.
   return await sequelize.transaction(async (t) => {
-    // 1. Create the jobcard itself with an initial 'requested' status.
     const jobcardData = { ...data, status: 'requested', requestDate: new Date() };
     const newJobcard = await Jobcard.create(jobcardData, { transaction: t });
 
-    // 2. --- DYNAMIC ADMIN LOOKUP (THE FIX) ---
-    // Instead of using a hard-coded ID, find the first user with the 'Admin' role.
-    const adminUser = await User.findOne({
-      where: { role: 'Admin' },
-      transaction: t
-    });
-
-    // 3. Create a notification only if an Admin user was found.
+    const adminUser = await User.findOne({ where: { role: 'Admin' }, transaction: t });
     if (adminUser) {
       await Notification.create({
-        userId: adminUser.userId, // Use the dynamically found Admin's ID
+        userId: adminUser.userId,
         jobcardId: newJobcard.jobcardId,
         sourceType: "Jobcard Request",
         message: `New medication request (Jobcard #${newJobcard.jobcardId}) requires approval.`,
         severity: "warning"
       }, { transaction: t });
     } else {
-      // If no admin exists, log a warning but don't crash the application.
       console.warn("WARNING: A jobcard was created, but no 'Admin' user was found to receive the approval notification.");
     }
-
     return newJobcard;
   });
 }
 
 /**
- * Finds all jobcards with their related data, ordered by the most recent.
+ * Finds all jobcards with their related data.
  * @returns {Promise<Jobcard[]>} An array of all jobcards.
  */
 async function findAll() {
@@ -76,7 +65,7 @@ async function findAll() {
 }
 
 /**
- * Finds a single jobcard by its ID with related data.
+ * Finds a single jobcard by its ID.
  * @param {number} id - The ID of the jobcard.
  * @returns {Promise<Jobcard|null>} The found jobcard or null.
  */
@@ -91,39 +80,44 @@ async function findById(id) {
 }
 
 /**
- * Updates a jobcard. If the status is changed to 'approved', this function
- * orchestrates checking inventory, creating consumption logs, and triggering the robot.
+ * Updates a jobcard. On 'approved' status, it sends detailed formula data to the robot.
  * @param {number} jobcardId - The ID of the jobcard to update.
  * @param {object} updateData - The new data for the jobcard.
  * @returns {Promise<Jobcard>} The updated jobcard instance.
  */
 async function updateJobcard(jobcardId, updateData) {
-  // A transaction ensures that if any step fails (e.g., robot offline, not enough stock),
-  // the entire operation is rolled back, preventing data corruption.
   return await sequelize.transaction(async (t) => {
     const jobcard = await Jobcard.findByPk(jobcardId, { transaction: t });
     if (!jobcard) {
       throw new Error("Jobcard not found.");
     }
 
-    // --- MAIN APPROVAL LOGIC ---
     if (updateData.status === 'approved' && jobcard.status !== 'approved') {
-      // 1. Get the full recipe for the jobcard's dilution.
+      // 1. Get the full recipe, INCLUDING the inventory item details for each ingredient.
       const jobcardWithRecipe = await Jobcard.findByPk(jobcardId, {
-        include: { model: Dilution, include: { model: Formula, include: { model: FormulaDetail } } },
+        include: {
+          model: Dilution,
+          include: {
+            model: Formula,
+            include: {
+              model: FormulaDetail,
+              include: [Inventory] // <-- This links to the Inventory table to get names
+            }
+          }
+        },
         transaction: t
       });
 
       const ingredients = jobcardWithRecipe.Dilution?.Formula?.FormulaDetails;
       if (!ingredients || ingredients.length === 0) {
-        throw new Error("Approval failed: The formula for this dilution has no ingredients listed.");
+        throw new Error("Approval failed: The formula has no ingredients listed.");
       }
 
-      // 2. Process each ingredient: Check stock, deduct, and log consumption.
+      // 2. Process stock and consumption logs (no changes here).
       for (const ingredient of ingredients) {
         const stockItem = await Inventory.findByPk(ingredient.inventoryId, { transaction: t });
         if (!stockItem || stockItem.quantity < ingredient.requiredQuantity) {
-          throw new Error(`Insufficient stock for item ID ${ingredient.inventoryId}. Required: ${ingredient.requiredQuantity}, Available: ${stockItem.quantity || 0}.`);
+          throw new Error(`Insufficient stock for item ${stockItem.name}. Required: ${ingredient.requiredQuantity}, Available: ${stockItem.quantity || 0}.`);
         }
         await stockItem.decrement('quantity', { by: ingredient.requiredQuantity, transaction: t });
         await Consumption.create({
@@ -135,24 +129,37 @@ async function updateJobcard(jobcardId, updateData) {
         }, { transaction: t });
       }
 
-      // 3. --- ROBOT INTEGRATION ---
+      // 3. --- NEW ---
+      // Format the formula data into a simple, parsable string for the robot.
+      const formulaDataForRobot = ingredients.map(ing => {
+        const ingredientName = ing.Inventory.name.replace(/:|,/g, ''); // Sanitize name
+        const requiredVolume = ing.requiredQuantity;
+        return `${ingredientName}:${requiredVolume}`; // e.g., "Saline:50"
+      }).join(','); // e.g., "Saline:50,Glucose:20,MedX:5"
+      // ----------------
+
+      // 4. --- MODIFIED ---
+      // Trigger the robot, now including the formula in the 'message' field.
       try {
-        console.log(`[Integration] Triggering robot for approved Jobcard #${jobcardId}...`);
+        console.log(`[Integration] Triggering robot for Jobcard #${jobcardId}...`);
+        console.log(`[Integration] Sending Formula: ${formulaDataForRobot}`);
+        
         const form = new FormData();
         form.append('task', `Job-${jobcardId}-Dilution-Mix`);
-        
-        // Send POST request to the PHP container using its Docker service name.
+        form.append('message', formulaDataForRobot); // <-- Pass the formula string
+
         const robotApiResponse = await axios.post('http://robot-server/api/trigger.php', form, {
           headers: form.getHeaders()
         });
+
         console.log(`[Integration] Success! Robot task created with ID: ${robotApiResponse.data}`);
       } catch (error) {
         console.error("[Integration Error] FAILED to trigger robot:", error.message);
-        // This is a critical failure. Throw an error to CANCEL the entire transaction.
         throw new Error("Could not trigger the robot. The robot service may be offline. Approval cancelled.");
       }
+      // --------------------
 
-      // 4. Create a notification for the user who requested the jobcard.
+      // 5. Create notifications (no changes here).
       await Notification.create({
         userId: jobcard.userId,
         jobcardId: jobcard.jobcardId,
@@ -162,7 +169,6 @@ async function updateJobcard(jobcardId, updateData) {
       }, { transaction: t });
     }
 
-    // 5. Finally, apply the requested updates to the jobcard model.
     const updatedJobcard = await jobcard.update(updateData, { transaction: t });
     return updatedJobcard;
   });
@@ -184,6 +190,6 @@ module.exports = {
   create,
   findAll,
   findById,
-  update: updateJobcard, // Alias 'update' to our detailed function for the controller.
+  update: updateJobcard,
   destroy
 };
