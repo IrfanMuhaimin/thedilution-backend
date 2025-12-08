@@ -44,3 +44,12 @@ exports.delete = async (req, res) => {
     if (result) res.status(200).send(result);
     else res.status(404).send({ message: "Cannot delete." });
 };
+
+exports.findByFormula = async (req, res) => {
+  try {
+    const records = await service.findByFormula(req.params.formulaId);
+    res.status(200).send(records);
+  } catch (err) {
+    res.status(500).send({ message: err.message });
+  }
+};

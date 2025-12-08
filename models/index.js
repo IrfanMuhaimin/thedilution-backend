@@ -35,6 +35,7 @@ db.Report = require("./report.model.js")(sequelize, DataTypes);
 db.HardwareLog = require("./hardwareLog.model.js")(sequelize, DataTypes);
 db.Notification = require("./notification.model.js")(sequelize, DataTypes);
 db.FormulaDetail = require("./formulaDetail.model.js")(sequelize, DataTypes);
+db.InventoryStock = require("./inventoryStock.model.js")(sequelize, DataTypes);
 
 // --- Define All Associations Here ---
 
@@ -55,6 +56,8 @@ db.Inventory.hasMany(db.Consumption, { foreignKey: 'inventoryId' });
 db.Inventory.hasMany(db.Report, { foreignKey: 'inventoryId' });
 db.Inventory.hasMany(db.FormulaDetail, { foreignKey: 'inventoryId' });
 db.Inventory.belongsTo(db.User, { foreignKey: 'userId' });
+db.Inventory.hasMany(db.InventoryStock, { foreignKey: 'inventoryId' });
+db.InventoryStock.belongsTo(db.Inventory, { foreignKey: 'inventoryId' });
 
 // PrescriptionDetail Associations
 db.PrescriptionDetail.hasOne(db.Jobcard, { foreignKey: 'prescriptionId' });

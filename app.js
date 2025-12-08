@@ -43,6 +43,7 @@ require("./routes/auth.routes")(app);
 require("./routes/hardwareLog.routes")(app);
 require("./routes/notification.routes")(app);
 require("./routes/dashboard.routes")(app);
+require("./routes/inventoryStock.routes")(app);
 
 // --- Server Listening ---
 const PORT = process.env.PORT || 8080;

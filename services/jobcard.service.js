@@ -84,19 +84,22 @@ async function updateJobcard(jobcardId, updateData) {
         throw new Error("Cannot approve jobcard: The formula has no ingredients listed.");
       }
 
-      // Loop to deduct stock and create consumption logs
+      // Loop through each ingredient in the recipe
       for (const ingredient of ingredients) {
+        // 1. Check for sufficient stock
         const stockItem = await Inventory.findByPk(ingredient.inventoryId, { transaction: t });
         if (!stockItem || stockItem.quantity < ingredient.requiredQuantity) {
           throw new Error(`Insufficient stock for inventory item ID ${ingredient.inventoryId}. Required: ${ingredient.requiredQuantity}, Available: ${stockItem.quantity}.`);
         }
         
+        // 2. Deduct the stock from inventory
         await Inventory.decrement('quantity', {
           by: ingredient.requiredQuantity,
           where: { inventoryId: ingredient.inventoryId },
           transaction: t
         });
 
+        // --- 3. AUTOMATICALLY CREATE CONSUMPTION RECORD ---
         await Consumption.create({
           inventoryId: ingredient.inventoryId,
           jobcardId: jobcardId,
@@ -104,10 +107,10 @@ async function updateJobcard(jobcardId, updateData) {
           quantityUsed: ingredient.requiredQuantity,
           consumptionDate: new Date()
         }, { transaction: t });
+        // --- END OF NEW LOGIC ---
       }
 
       // Automatically create the "approved" notification
-      // We can now omit timestamp and isRead
        await Notification.create({
         userId: jobcard.userId,
         jobcardId: jobcard.jobcardId,
@@ -121,7 +124,6 @@ async function updateJobcard(jobcardId, updateData) {
     return updatedJobcard;
   });
 }
-
 async function destroy(id) {
     const record = await Jobcard.findByPk(id);
     if (!record) return null;

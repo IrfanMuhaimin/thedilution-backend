@@ -63,7 +63,19 @@ module.exports = (sequelize, DataTypes) => {
     approveDate: {
       type: DataTypes.DATE
     }
-  }, { timestamps: false });
+  }, { timestamps: false,
+     hooks: {
+      afterDestroy: async (jobcard, options) => {
+        if (jobcard.prescriptionId) {
+          const PrescriptionDetailModel = sequelize.models.PrescriptionDetail;
+          await PrescriptionDetailModel.destroy({
+            where: { prescriptionId: jobcard.prescriptionId },
+            transaction: options.transaction
+          });
+        }
+      }
+    }
+   });
 
   return Jobcard;
 };
