@@ -2,21 +2,11 @@ services:
   api:
     build: .
     ports:
-      - "8081:8080" # We map local port 8081 to the container's port 8080
+      - "8081:8080" # The internal port is now 8080 as defined in the .env
     env_file:
       - ./.env
-    # --- ADD/MODIFY THESE TWO SECTIONS ---
-    volumes:
-      # This syncs your local code into the container's /app directory
-      - ./:/app
-      # This is an anonymous volume that prevents your local node_modules
-      # from overwriting the one inside the container. It's a best practice.
-      - /app/node_modules
-    
-    # This command OVERRIDES the "CMD" in your Dockerfile.
-    # Instead of 'node app.js', it will run 'npm run dev' to start nodemon.
-    command: npm run dev
-    # ------------------------------------
+    # The command is now handled by the Dockerfile, so we remove it from here.
+    # We still keep depends_on for startup order.
     depends_on:
       db:
         condition: service_healthy
