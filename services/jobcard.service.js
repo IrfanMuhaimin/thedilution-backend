@@ -1,3 +1,9 @@
+/**
+ * This service handles all business logic related to Jobcards.
+ * It includes creating requests, processing approvals, checking inventory,
+ * and triggering the external robot API.
+ */
+
 const db = require("../models");
 const axios = require('axios');
 const FormData = require('form-data');
@@ -11,44 +17,51 @@ const {
   FormulaDetail,
   PrescriptionDetail,
   Inventory,
-  User,
+  User, // <-- User model is needed for the dynamic lookup
   Consumption,
   Notification,
-  sequelize // We need this for database transactions
+  sequelize
 } = db;
 
 /**
- * Creates a new jobcard and a notification for the approver.
+ * Creates a new jobcard and a notification for the first available Admin.
  * @param {object} data - The jobcard data from the request body.
  * @returns {Promise<Jobcard>} The newly created jobcard instance.
  */
 async function create(data) {
-  // Use a transaction to ensure both the jobcard and notification are created successfully
+  // Use a transaction to ensure both the jobcard and notification are created successfully, or neither are.
   return await sequelize.transaction(async (t) => {
-    // 1. Create the jobcard with initial status and date
-    const jobcardData = {
-      ...data,
-      status: 'requested', // Set initial status
-      requestDate: new Date()
-    };
+    // 1. Create the jobcard itself with an initial 'requested' status.
+    const jobcardData = { ...data, status: 'requested', requestDate: new Date() };
     const newJobcard = await Jobcard.create(jobcardData, { transaction: t });
 
-    // 2. Automatically create a notification for the approver (e.g., an Admin with userId 1)
-    const approverUserId = 1; // This should be dynamically determined in a real system
-    await Notification.create({
-      userId: approverUserId,
-      jobcardId: newJobcard.jobcardId,
-      sourceType: "Jobcard Request",
-      message: `New medication request (Jobcard #${newJobcard.jobcardId}) requires approval.`,
-      severity: "warning"
-    }, { transaction: t });
+    // 2. --- DYNAMIC ADMIN LOOKUP (THE FIX) ---
+    // Instead of using a hard-coded ID, find the first user with the 'Admin' role.
+    const adminUser = await User.findOne({
+      where: { role: 'Admin' },
+      transaction: t
+    });
+
+    // 3. Create a notification only if an Admin user was found.
+    if (adminUser) {
+      await Notification.create({
+        userId: adminUser.userId, // Use the dynamically found Admin's ID
+        jobcardId: newJobcard.jobcardId,
+        sourceType: "Jobcard Request",
+        message: `New medication request (Jobcard #${newJobcard.jobcardId}) requires approval.`,
+        severity: "warning"
+      }, { transaction: t });
+    } else {
+      // If no admin exists, log a warning but don't crash the application.
+      console.warn("WARNING: A jobcard was created, but no 'Admin' user was found to receive the approval notification.");
+    }
 
     return newJobcard;
   });
 }
 
 /**
- * Finds all jobcards with their related data.
+ * Finds all jobcards with their related data, ordered by the most recent.
  * @returns {Promise<Jobcard[]>} An array of all jobcards.
  */
 async function findAll() {
@@ -56,9 +69,7 @@ async function findAll() {
     include: [
       { model: User, as: 'requester', attributes: { exclude: ['password'] } },
       { model: User, as: 'approver', attributes: { exclude: ['password'] } },
-      { model: Hardware },
-      { model: Dilution },
-      { model: PrescriptionDetail }
+      { model: Hardware }, { model: Dilution }, { model: PrescriptionDetail }
     ],
     order: [['requestDate', 'DESC']]
   });
@@ -74,16 +85,14 @@ async function findById(id) {
     include: [
       { model: User, as: 'requester', attributes: { exclude: ['password'] } },
       { model: User, as: 'approver', attributes: { exclude: ['password'] } },
-      { model: Hardware },
-      { model: Dilution },
-      { model: PrescriptionDetail }
+      { model: Hardware }, { model: Dilution }, { model: PrescriptionDetail }
     ]
   });
 }
 
 /**
- * Updates a jobcard. This function contains the core integration logic.
- * If status is changed to 'approved', it deducts inventory and triggers the robot.
+ * Updates a jobcard. If the status is changed to 'approved', this function
+ * orchestrates checking inventory, creating consumption logs, and triggering the robot.
  * @param {number} jobcardId - The ID of the jobcard to update.
  * @param {object} updateData - The new data for the jobcard.
  * @returns {Promise<Jobcard>} The updated jobcard instance.
@@ -97,15 +106,11 @@ async function updateJobcard(jobcardId, updateData) {
       throw new Error("Jobcard not found.");
     }
 
-    // --- MAIN LOGIC BLOCK: This only runs when a jobcard is approved ---
+    // --- MAIN APPROVAL LOGIC ---
     if (updateData.status === 'approved' && jobcard.status !== 'approved') {
-
-      // 1. Get the full recipe for the jobcard's dilution
+      // 1. Get the full recipe for the jobcard's dilution.
       const jobcardWithRecipe = await Jobcard.findByPk(jobcardId, {
-        include: {
-          model: Dilution,
-          include: { model: Formula, include: { model: FormulaDetail } }
-        },
+        include: { model: Dilution, include: { model: Formula, include: { model: FormulaDetail } } },
         transaction: t
       });
 
@@ -114,19 +119,13 @@ async function updateJobcard(jobcardId, updateData) {
         throw new Error("Approval failed: The formula for this dilution has no ingredients listed.");
       }
 
-      // 2. Process each ingredient: Check stock, deduct, and log consumption
+      // 2. Process each ingredient: Check stock, deduct, and log consumption.
       for (const ingredient of ingredients) {
         const stockItem = await Inventory.findByPk(ingredient.inventoryId, { transaction: t });
-        
-        // A. Check for sufficient stock
         if (!stockItem || stockItem.quantity < ingredient.requiredQuantity) {
           throw new Error(`Insufficient stock for item ID ${ingredient.inventoryId}. Required: ${ingredient.requiredQuantity}, Available: ${stockItem.quantity || 0}.`);
         }
-        
-        // B. Deduct the stock from inventory
         await stockItem.decrement('quantity', { by: ingredient.requiredQuantity, transaction: t });
-
-        // C. Create a consumption record for tracking
         await Consumption.create({
           inventoryId: ingredient.inventoryId,
           jobcardId: jobcardId,
@@ -139,36 +138,31 @@ async function updateJobcard(jobcardId, updateData) {
       // 3. --- ROBOT INTEGRATION ---
       try {
         console.log(`[Integration] Triggering robot for approved Jobcard #${jobcardId}...`);
-        
         const form = new FormData();
-        const taskName = `Job-${jobcardId}-Dilution-Mix`;
-        form.append('task', taskName);
-
-        // Send POST request to the PHP container using its Docker service name ('robot-server')
+        form.append('task', `Job-${jobcardId}-Dilution-Mix`);
+        
+        // Send POST request to the PHP container using its Docker service name.
         const robotApiResponse = await axios.post('http://robot-server/api/trigger.php', form, {
           headers: form.getHeaders()
         });
-
         console.log(`[Integration] Success! Robot task created with ID: ${robotApiResponse.data}`);
-
       } catch (error) {
         console.error("[Integration Error] FAILED to trigger robot:", error.message);
-        // This is a critical failure. We throw an error to CANCEL the entire transaction.
-        // The inventory will be rolled back, and the jobcard will NOT be marked as approved.
+        // This is a critical failure. Throw an error to CANCEL the entire transaction.
         throw new Error("Could not trigger the robot. The robot service may be offline. Approval cancelled.");
       }
 
-      // 4. Create a notification for the user who requested the jobcard
-       await Notification.create({
+      // 4. Create a notification for the user who requested the jobcard.
+      await Notification.create({
         userId: jobcard.userId,
         jobcardId: jobcard.jobcardId,
         sourceType: "Jobcard Approval",
-        message: `Your medication request (Jobcard #${jobcard.jobcardId}) has been approved and sent to the robot.`,
+        message: `Your medication request (Jobcard #${jobcard.jobcardId}) has been approved.`,
         severity: "info"
       }, { transaction: t });
     }
 
-    // 5. Finally, apply the requested updates to the jobcard model
+    // 5. Finally, apply the requested updates to the jobcard model.
     const updatedJobcard = await jobcard.update(updateData, { transaction: t });
     return updatedJobcard;
   });
@@ -180,16 +174,16 @@ async function updateJobcard(jobcardId, updateData) {
  * @returns {Promise<object|null>} A success message or null if not found.
  */
 async function destroy(id) {
-    const record = await Jobcard.findByPk(id);
-    if (!record) return null;
-    await record.destroy();
-    return { message: "Jobcard deleted." };
+  const record = await Jobcard.findByPk(id);
+  if (!record) return null;
+  await record.destroy();
+  return { message: "Jobcard deleted." };
 }
 
 module.exports = {
   create,
   findAll,
   findById,
-  update: updateJobcard, // Alias 'update' to our detailed function
+  update: updateJobcard, // Alias 'update' to our detailed function for the controller.
   destroy
 };

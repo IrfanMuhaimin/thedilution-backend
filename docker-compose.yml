@@ -1,24 +1,38 @@
-version: '3.8'
-
 services:
-  # This is your Node.js application service
   api:
-    build: .  # <-- CHANGED: Build from the current folder, not a 'backend' subfolder
+    build: .
     ports:
-      - "8081:8080"
+      - "8081:8080" # We map local port 8081 to the container's port 8080
+    env_file:
+      - ./.env
+    # --- ADD/MODIFY THESE TWO SECTIONS ---
+    volumes:
+      # This syncs your local code into the container's /app directory
+      - ./:/app
+      # This is an anonymous volume that prevents your local node_modules
+      # from overwriting the one inside the container. It's a best practice.
+      - /app/node_modules
+    
+    # This command OVERRIDES the "CMD" in your Dockerfile.
+    # Instead of 'node app.js', it will run 'npm run dev' to start nodemon.
+    command: npm run dev
+    # ------------------------------------
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - shared-network
-    env_file:
-      - ./.env # <-- CHANGED: Look for the .env file in the current folder
 
-  # This is your database service
   db:
     image: mysql:8.0
     container_name: thedilution_mysql_db
+    # ... rest of your db service is the same ...
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
-      # These now read from your .env file for consistency
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
