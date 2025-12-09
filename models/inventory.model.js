@@ -10,7 +10,7 @@ module.exports = (sequelize, DataTypes) => {
     userId: { type: DataTypes.INTEGER },
     name: { type: DataTypes.STRING(100), allowNull: false },
 
-     hardwarePort: {
+    hardwarePort: {
       type: DataTypes.STRING(10), 
       allowNull: true 
     },

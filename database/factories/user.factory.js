@@ -10,7 +10,7 @@ const bcrypt = require('bcryptjs');
 const UserFactory = (db) => {
   return defineFactory(db.User, (faker) => {
     const departments = ['Pharmacy', 'Laboratory', 'Administration', 'IT', 'Management'];
-    const roles = ['admin', 'pharmacist', 'technician', 'manager', 'user'];
+    const roles = ['Admin', 'Pharmacist', 'Doctor'];
     const statuses = ['active', 'inactive', 'suspended'];
     
     return {

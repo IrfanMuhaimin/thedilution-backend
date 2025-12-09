@@ -44,7 +44,7 @@ const PORT = process.env.PORT || 8080;
 // The { force: true } option will drop tables if they exist.
 // Use it only in development. Remove for production.
 // db.sequelize.sync({ force: true })
-db.sequelize.sync()
+db.sequelize.sync({ force: true })
   .then(() => {
     console.log("✅ Database synced successfully.");
     
