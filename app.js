@@ -1,5 +1,10 @@
 //app.js
-require('dotenv').config();
+const path = require('path');
+const nodeEnv = process.env.NODE_ENV || 'production';
+require('dotenv').config({
+  path: path.resolve(process.cwd(), nodeEnv === 'development' ? '.env.development' : '.env')
+});
+console.log(`[INFO] Running in ${nodeEnv} mode.`);
 
 const express = require("express");
 const cors = require("cors");

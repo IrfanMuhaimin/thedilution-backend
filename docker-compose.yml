@@ -2,17 +2,14 @@ services:
   api:
     build: .
     ports:
-      - "8081:8080" # The internal port is now 8080 as defined in the .env
+      - "8081:8080"
     env_file:
       - ./.env
-    # The command is now handled by the Dockerfile, so we remove it from here.
-    # We still keep depends_on for startup order.
     depends_on:
       db:
         condition: service_healthy
     networks:
       - shared-network
-
   db:
     image: mysql:8.0
     container_name: thedilution_mysql_db
