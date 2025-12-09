@@ -9,6 +9,12 @@ module.exports = (sequelize, DataTypes) => {
     },
     userId: { type: DataTypes.INTEGER },
     name: { type: DataTypes.STRING(100), allowNull: false },
+
+     hardwarePort: {
+      type: DataTypes.STRING(10), 
+      allowNull: true 
+    },
+    
     quantity: {
       type: DataTypes.INTEGER,
       allowNull: false,

@@ -51,8 +51,16 @@ exports.findOne = async (req, res) => {
   }
 };
 
-exports.update = (req, res) => {
-  res.status(405).send({ message: "Direct updates are not allowed. Please use the 'add stock' endpoint." });
+exports.update = async (req, res) => {
+  try {
+    const updatedItem = await inventoryService.updateInventory(req.params.id, req.body);
+    if (!updatedItem) {
+      return res.status(404).send({ message: `Cannot update. Inventory item with id=${req.params.id} not found.` });
+    }
+    res.status(200).send(updatedItem);
+  } catch (err) {
+    res.status(500).send({ message: err.message || "Error updating inventory item." });
+  }
 };
 
 exports.delete = async (req, res) => {

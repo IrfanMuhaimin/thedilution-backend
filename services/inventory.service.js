@@ -74,6 +74,28 @@ async function getInventoryById(id) {
   });
 }
 
+async function updateInventory(inventoryId, updateData) {
+  const inventory = await Inventory.findByPk(inventoryId);
+  if (!inventory) {
+    return null; // Return null if the item doesn't exist
+  }
+
+  // For safety, explicitly define which fields are allowed to be updated.
+  // This prevents accidental changes to the 'quantity'.
+  const allowedUpdates = {
+    name: updateData.name,
+    unit: updateData.unit,
+    hardwarePort: updateData.hardwarePort, // <-- The field you need
+    status: updateData.status,
+    updateDate: new Date()
+  };
+
+  // Remove any undefined properties from the update object
+  Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
+
+  return await inventory.update(allowedUpdates);
+}
+
 async function deleteInventory(inventoryId) {
   return await sequelize.transaction(async (t) => {
     const inventory = await Inventory.findByPk(inventoryId, { transaction: t });
@@ -93,5 +115,6 @@ module.exports = {
   addStock,
   getAllInventory,
   getInventoryById,
+  updateInventory,
   deleteInventory // Ensure this is exported
 };

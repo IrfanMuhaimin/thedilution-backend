@@ -10,8 +10,8 @@ module.exports = app => {
 
   router.get("/", [verifyToken, controller.findAll]);
   router.get("/:id", [verifyToken, controller.findOne]);
-
-  router.put("/:id", (req, res) => res.status(405).send({ message: "Direct updates not allowed." }));
+  
+  router.put("/:id", [verifyToken, isAdminOrPharmacist, controller.update]);
   router.delete("/:id", [verifyToken, isAdmin, controller.delete]);
 
   app.use('/api/inventory', router);
