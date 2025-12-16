@@ -12,13 +12,16 @@ const cors = require("cors");
 const app = express();
 
 // --- Middleware ---
+// Using cors() without options allows requests from any origin,
+// which is perfect for local development (e.g., from localhost:3000).
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Routes --- (Define them before the DB sync)
-app.get("/", (req, res) => {
-  res.json({ message: "Welcome to The Dilution System backend." });
+// --- API Routes ---
+// This is now the only job of this server.
+app.get("/api", (req, res) => {
+  res.json({ message: "Welcome to The Dilution System backend API." });
 });
 
 require("./routes/user.routes")(app);
@@ -36,28 +39,18 @@ require("./routes/notification.routes")(app);
 require("./routes/dashboard.routes")(app);
 require("./routes/inventoryStock.routes")(app);
 
-
 // --- Database Sync and Server Start ---
 const db = require("./models");
 const PORT = process.env.PORT || 8080;
 
-// The { force: true } option will drop tables if they exist.
-// Use it only in development. Remove for production.
-// db.sequelize.sync({ force: true })
-db.sequelize.sync()
+db.sequelize.sync({ alter: true })
   .then(() => {
     console.log("✅ Database synced successfully.");
-    
-    // --- Start Listening for Requests ---
-    // This part only runs if the database sync is successful
     app.listen(PORT, () => {
       console.log(`✅ Server is running on port ${PORT}.`);
-      console.log("   Waiting for incoming requests...");
     });
   })
   .catch((err) => {
-    // This part runs if the database sync fails
     console.error("❌ Failed to sync database:", err);
-    // Exit the process with an error code, which is good for Docker
     process.exit(1);
   });

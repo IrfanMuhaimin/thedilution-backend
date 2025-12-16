@@ -45,3 +45,33 @@ exports.delete = async (req, res) => {
     if (result) res.status(200).send(result);
     else res.status(404).send({ message: "Cannot delete." });
 };
+
+
+// --- EXECUTE (THE NEW FUNCTION) ---
+exports.executeJobcard = async (req, res) => {
+    const jobcardId = req.params.id; // Get the ID from the URL parameter
+
+    try {
+        // Call the service function, which handles the complex logic
+        const result = await service.executeJobcard(jobcardId);
+        
+        // Success: Robot task was triggered
+        res.status(200).send(result); 
+
+    } catch (error) {
+        console.error(`Error executing Jobcard #${jobcardId}:`, error.message);
+        
+        // Custom error handling for specific business logic failures
+        if (error.message.includes("Jobcard not found")) {
+            return res.status(404).send({ message: error.message });
+        }
+        if (error.message.includes("Cannot execute") || 
+            error.message.includes("formula has no ingredients") ||
+            error.message.includes("hardware port")) {
+            return res.status(400).send({ message: error.message }); // 400 Bad Request/Business Logic Error
+        }
+        
+        // Default catch for server/robot connection errors
+        res.status(500).send({ message: error.message || "An unexpected error occurred during execution." });
+    }
+};

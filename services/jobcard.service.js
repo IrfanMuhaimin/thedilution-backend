@@ -1,29 +1,18 @@
-/**
- * This service handles all business logic for Jobcards.
- * On approval, it now triggers the robot's PHP script directly via the command line
- * for maximum reliability on the server.
- */
-
 const db = require("../models");
-// We no longer need axios for this integration.
-// Instead, we use the built-in 'exec' function from Node's child_process module.
-const { exec } = require('child_process');
+const axios = require('axios');
 
-// Destructure all the models we'll need for our operations
-const {
-  Jobcard,
-  Dilution,
-  Formula,
-  FormulaDetail,
-  Inventory,
-  User,
-  Consumption,
-  Notification,
-  PrescriptionDetail,
-  sequelize
+const { 
+    Jobcard, Dilution, Formula, FormulaDetail, Inventory, 
+    User, Consumption, Notification, PrescriptionDetail, sequelize 
 } = db;
 
-// The create, findAll, and findById functions remain unchanged.
+// This will read the URL from your .env.development or .env file
+const ROBOT_API_URL = process.env.ROBOT_API_URL;
+if (!ROBOT_API_URL) {
+    console.warn("WARNING: ROBOT_API_URL is not set. Robot execution will fail.");
+}
+
+// --- CREATE ---
 async function create(data) {
     return await sequelize.transaction(async (t) => {
         const jobcardData = { ...data, status: 'requested', requestDate: new Date() };
@@ -31,142 +20,147 @@ async function create(data) {
         const adminUser = await User.findOne({ where: { role: 'Admin' }, transaction: t });
         if (adminUser) {
             await Notification.create({
-                userId: adminUser.userId,
-                jobcardId: newJobcard.jobcardId,
-                sourceType: "Jobcard Request",
+                userId: adminUser.userId, jobcardId: newJobcard.jobcardId, sourceType: "Jobcard Request",
                 message: `New medication request (Jobcard #${newJobcard.jobcardId}) requires approval.`,
                 severity: "warning"
             }, { transaction: t });
-        } else {
-            console.warn("WARNING: No 'Admin' user found to receive approval notification.");
         }
         return newJobcard;
     });
 }
 
+// --- FIND ALL (READ) ---
 async function findAll() {
     return await Jobcard.findAll({
-        include: [{ model: User, as: 'requester', attributes: { exclude: ['password'] } }, { model: User, as: 'approver', attributes: { exclude: ['password'] } }, { model: Dilution }, { model: PrescriptionDetail }],
+        include: [
+            { model: User, as: 'requester', attributes: { exclude: ['password'] } }, 
+            { model: User, as: 'approver', attributes: { exclude: ['password'] } }, 
+            { model: Dilution },
+            { model: PrescriptionDetail }
+        ],
         order: [['requestDate', 'DESC']]
     });
 }
 
+// --- FIND BY ID (READ) ---
 async function findById(id) {
     return await Jobcard.findByPk(id, {
         include: [{ model: User, as: 'requester', attributes: { exclude: ['password'] } }, { model: User, as: 'approver', attributes: { exclude: ['password'] } }, { model: Dilution }, { model: PrescriptionDetail }]
     });
 }
 
+// --- UPDATE ---
+async function update(jobcardId, updateData) {
+    return await sequelize.transaction(async (t) => {
+        const jobcard = await Jobcard.findByPk(jobcardId, { transaction: t, lock: t.LOCK.UPDATE });
+        if (!jobcard) throw new Error("Jobcard not found.");
 
-/**
- * Updates a jobcard. On 'approved' status, it triggers the robot by executing a PHP script directly.
- */
-async function updateJobcard(jobcardId, updateData) {
-  return await sequelize.transaction(async (t) => {
-    const jobcard = await Jobcard.findByPk(jobcardId, { transaction: t });
-    if (!jobcard) {
-      throw new Error("Jobcard not found.");
-    }
+        if (updateData.status === 'approved' && jobcard.status !== 'approved') {
+            const jobcardWithRecipe = await Jobcard.findByPk(jobcardId, {
+                include: { model: Dilution, include: { model: Formula, include: { model: FormulaDetail, include: [Inventory] } } },
+                transaction: t
+            });
+            const ingredients = jobcardWithRecipe.Dilution?.Formula?.FormulaDetails;
+            if (!ingredients || ingredients.length === 0) throw new Error("Approval failed: The formula has no ingredients.");
 
-    if (updateData.status === 'approved' && jobcard.status !== 'approved') {
-      // Step 1: Get recipe (no changes here)
-      const jobcardWithRecipe = await Jobcard.findByPk(jobcardId, {
-        include: {
-          model: Dilution,
-          include: { model: Formula, include: { model: FormulaDetail, include: [Inventory] } }
-        },
-        transaction: t
-      });
-
-      const ingredients = jobcardWithRecipe.Dilution?.Formula?.FormulaDetails;
-      if (!ingredients || ingredients.length === 0) {
-        throw new Error("Approval failed: The formula has no ingredients listed.");
-      }
-
-      // Step 2: Process stock (no changes here)
-      for (const ingredient of ingredients) {
-        const stockItem = await Inventory.findByPk(ingredient.inventoryId, { transaction: t });
-        if (!stockItem || stockItem.quantity < ingredient.requiredQuantity) {
-          throw new Error(`Insufficient stock for item ${stockItem.name}.`);
-        }
-        await stockItem.decrement('quantity', { by: ingredient.requiredQuantity, transaction: t });
-        await Consumption.create({
-          inventoryId: ingredient.inventoryId,
-          jobcardId: jobcardId,
-          formulaId: jobcardWithRecipe.Dilution.Formula.formulaId,
-          quantityUsed: ingredient.requiredQuantity,
-          consumptionDate: new Date()
-        }, { transaction: t });
-      }
-
-      // Step 3: Format data string (no changes here)
-      const formulaDataForRobot = ingredients.map(ing => {
-        if (!ing.Inventory.hardwarePort) {
-          throw new Error(`Approval failed: Ingredient '${ing.Inventory.name}' is not assigned to a hardware port.`);
-        }
-        const ingredientName = ing.Inventory.name.replace(/:|,/g, '');
-        const requiredVolume = ing.requiredQuantity;
-        const port = ing.Inventory.hardwarePort;
-        return `${ingredientName}:${requiredVolume}:${port}`;
-      }).join(',');
-
-      // Step 4: --- NEW ROBOT INTEGRATION VIA COMMAND LINE EXECUTION ---
-      try {
-        console.log(`[Integration] Triggering robot for Jobcard #${jobcardId} via CLI...`);
-        
-        const taskName = `Job-${jobcardId}-Dilution-Mix`;
-        
-        // Sanitize data to prevent command injection issues.
-        const sanitizedTaskName = `"${taskName.replace(/"/g, '\\"')}"`;
-        const sanitizedMessage = `"${formulaDataForRobot.replace(/"/g, '\\"')}"`;
-        
-        // We build a shell command to execute the new PHP script.
-        // Data is passed securely as environment variables.
-        const command = `
-          TASK_NAME=${sanitizedTaskName} \
-          MESSAGE=${sanitizedMessage} \
-          php /var/www/robot.thedilution.my/api/trigger_cli.php
-        `;
-
-        // We wrap the 'exec' call in a Promise to use it cleanly with async/await.
-        await new Promise((resolve, reject) => {
-          exec(command, (error, stdout, stderr) => {
-            if (error) {
-              console.error(`[Integration Error] exec error: ${error}`);
-              return reject(error);
+            for (const ingredient of ingredients) {
+                const stockItem = await Inventory.findByPk(ingredient.inventoryId, { transaction: t, lock: t.LOCK.UPDATE });
+                if (!stockItem || stockItem.quantity < ingredient.requiredQuantity) throw new Error(`Insufficient stock for item: ${stockItem.name}.`);
+                await stockItem.decrement('quantity', { by: ingredient.requiredQuantity, transaction: t });
+                await Consumption.create({
+                    inventoryId: ingredient.inventoryId, jobcardId: jobcardId, formulaId: jobcardWithRecipe.Dilution.Formula.formulaId,
+                    quantityUsed: ingredient.requiredQuantity, consumptionDate: new Date()
+                }, { transaction: t });
             }
-            // The PHP script is designed to write errors to stderr.
-            if (stderr) {
-              console.error(`[Integration Error] PHP script stderr: ${stderr}`);
-              return reject(new Error(stderr));
-            }
-            // stdout will contain the new task ID if successful.
-            console.log(`[Integration] Success! Robot task created. Script output: ${stdout}`);
-            resolve(stdout);
-          });
-        });
-
-      } catch (error) {
-        console.error("================================================================");
-        console.error("[Integration Error] FAILED to execute PHP script.", error.message);
-        console.error("================================================================");
-        throw new Error("Could not trigger the robot. Approval cancelled.");
-      }
-      
-      // Step 5: Create notification (no changes here)
-      await Notification.create({
-        userId: jobcard.userId,
-        jobcardId: jobcard.jobcardId,
-        sourceType: "Jobcard Approval",
-        message: `Your medication request (Jobcard #${jobcardId}) has been approved.`,
-        severity: "info"
-      }, { transaction: t });
-    }
-
-    return await jobcard.update(updateData, { transaction: t });
-  });
+            await Notification.create({
+                userId: jobcard.userId, jobcardId: jobcard.jobcardId, sourceType: "Jobcard Approval",
+                message: `Your medication request (Jobcard #${jobcardId}) has been approved.`,
+                severity: "info"
+            }, { transaction: t });
+        }
+        return await jobcard.update(updateData, { transaction: t });
+    });
 }
 
+// --- EXECUTE (NOW FULLY IMPLEMENTED) ---
+async function executeJobcard(jobcardId) {
+    if (!ROBOT_API_URL) {
+        throw new Error("Robot API URL is not configured on the server. Cannot execute jobcard.");
+    }
+
+    return await sequelize.transaction(async (t) => {
+        // 1. Fetch the complete jobcard, including its recipe and ingredients
+        const jobcard = await Jobcard.findByPk(jobcardId, {
+            include: { model: Dilution, include: { model: Formula, include: { model: FormulaDetail, include: [Inventory] } } },
+            transaction: t,
+            lock: t.LOCK.UPDATE // Lock the row to prevent other actions on it
+        });
+
+        // 2. Validate the jobcard
+        if (!jobcard) throw new Error("Jobcard not found.");
+        if (jobcard.status !== 'Approved') {
+            throw new Error(`Cannot execute. Jobcard is in '${jobcard.status}' status, not 'Approved'.`);
+        }
+
+        const ingredients = jobcard.Dilution?.Formula?.FormulaDetails;
+        if (!ingredients || ingredients.length === 0) {
+            throw new Error("Execution failed: The formula has no ingredients.");
+        }
+
+        // 3. Construct the 'message' string for the robot
+        const robotCommandString = ingredients.map(ing => {
+            if (!ing.Inventory.hardwarePort) {
+                throw new Error(`Execution failed: Ingredient '${ing.Inventory.name}' is not assigned to a hardware port.`);
+            }
+            const ingredientName = ing.Inventory.name.replace(/:|,/g, '');
+            return `${ingredientName}:${ing.requiredQuantity}:${ing.Inventory.hardwarePort}`;
+        }).join(',');
+
+        try {
+            const taskName = `Jobcard-${jobcard.jobcardId}-Dilution`;
+            
+            // 4. Create the body for the POST request
+            const body = new URLSearchParams();
+            body.append('task', taskName); // The name of the task
+            body.append('message', robotCommandString); // The recipe string
+
+            console.log(`[Robot API] Sending to trigger.php: task='${taskName}', message='${robotCommandString}'`);
+
+            // 5. Make the API call to the robot server
+            const response = await axios.post(`${ROBOT_API_URL}/trigger.php`, body, {
+                responseType: 'text' // We expect a plain text ID back
+            });
+            
+            const newTaskId = parseInt(response.data);
+            if (isNaN(newTaskId) || newTaskId <= 0) {
+                throw new Error(`Robot API returned an invalid response: ${response.data}`);
+            }
+
+            console.log(`[Robot API] Success! Robot task created with ID: ${newTaskId}`);
+            
+            // 6. Update our local database to reflect the new status
+            await jobcard.update({ status: 'Processing' }, { transaction: t });
+            
+            return { success: true, message: `Jobcard #${jobcardId} sent to robot for execution.`, robotTaskId: newTaskId };
+
+        } catch (error) {
+            // This detailed error handling will help debug any future issues
+            let errorMessage = "Failed to trigger robot.";
+            if (error.response) {
+                console.error("[Robot API Error] The robot server responded with an error:", error.response.data);
+                errorMessage = `Robot API responded with an error: ${error.response.data}`;
+            } else if (error.request) {
+                console.error("[Robot API Error] No response was received from the robot server.");
+                errorMessage = "No response from Robot API. It may be offline or the URL is incorrect.";
+            } else {
+                console.error('[Robot API Error] An error occurred while setting up the request:', error.message);
+            }
+            throw new Error(errorMessage);
+        }
+    });
+}
+
+// --- DELETE ---
 async function destroy(id) {
     const record = await Jobcard.findByPk(id);
     if (!record) return null;
@@ -174,4 +168,4 @@ async function destroy(id) {
     return { message: "Jobcard deleted." };
 }
 
-module.exports = { create, findAll, findById, update: updateJobcard, destroy };
+module.exports = { create, findAll, findById, update, executeJobcard, destroy };
