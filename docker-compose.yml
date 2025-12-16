@@ -4,21 +4,27 @@ services:
     ports:
       - "8081:8080"
     env_file:
-      - ./.env
+      - ./docker.env
     depends_on:
       db:
         condition: service_healthy
     networks:
       - shared-network
+    # --- ADD THIS ENTIRE 'VOLUMES' BLOCK ---
+    volumes:
+      - ./:/app:cached
+    # ----------------------------------------
+  
   db:
     image: mysql:8.0
     container_name: thedilution_mysql_db
-    # ... rest of your db service is the same ...
     healthcheck:
       test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    env_file:
+      - ./docker.env
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}

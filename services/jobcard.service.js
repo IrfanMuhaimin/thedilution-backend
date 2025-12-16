@@ -122,14 +122,16 @@ async function executeJobcard(jobcardId) {
             // 4. Create the body for the POST request
             const body = new URLSearchParams();
             body.append('task', taskName); // The name of the task
-            body.append('message', robotCommandString); // The recipe string
+            
+            // THIS IS THE ONLY LINE THAT SHOULD SEND THE RECIPE
+            body.append('material', robotCommandString); 
 
-            console.log(`[Robot API] Sending to trigger.php: task='${taskName}', message='${robotCommandString}'`);
+            console.log(`[Robot API] Sending to trigger.php: task='${taskName}', material='${robotCommandString}'`);
 
             // 5. Make the API call to the robot server
             const response = await axios.post(`${ROBOT_API_URL}/trigger.php`, body, {
-                responseType: 'text' // We expect a plain text ID back
-            });
+                responseType: 'text'
+        });
             
             const newTaskId = parseInt(response.data);
             if (isNaN(newTaskId) || newTaskId <= 0) {
